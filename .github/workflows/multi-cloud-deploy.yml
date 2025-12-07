@@ -100,9 +100,26 @@ jobs:
           --name helloworld-asp \
           --resource-group helloworld-rg \
           --sku B1 \
-          --is-linux || true
+          --is-linux
 
-    - name: Create Azure Web App (from Docker Hub)
+    - name: Verify App Service Plan
+      run: |
+        echo "Verifying App Service Plan 'helloworld-asp' exists in group 'helloworld-rg'..."
+        for i in {1..12}; do
+          if az appservice plan show --name helloworld-asp --resource-group helloworld-rg >/dev/null 2>&1; then
+            echo "App Service Plan found"
+            break
+          fi
+          echo "Waiting for App Service Plan to be provisioned (attempt $i)..."
+          sleep 5
+        done
+        az appservice plan show --name helloworld-asp --resource-group helloworld-rg || {
+          echo "ERROR: App Service Plan 'helloworld-asp' not found after waiting. Listing plans in resource group:" >&2
+          az appservice plan list --resource-group helloworld-rg
+          exit 1
+        }
+
+    - name: Create Azure Web App
       run: |
         WEBAPP_NAME="helloworld-${{ github.run_id }}"
         echo "WEBAPP_NAME=$WEBAPP_NAME" >> $GITHUB_ENV
@@ -110,8 +127,15 @@ jobs:
         az webapp create \
           --resource-group helloworld-rg \
           --plan helloworld-asp \
-          --name $WEBAPP_NAME \
-          --deployment-container-image-name ${{ secrets.DOCKERHUB_USERNAME }}/helloworld-app:latest
+          --name $WEBAPP_NAME
+
+    - name: Configure Azure Web App Container Image (Docker Hub)
+      run: |
+        echo "Configuring container image for ${{ env.WEBAPP_NAME }}"
+        az webapp config container set \
+          --name ${{ env.WEBAPP_NAME }} \
+          --resource-group helloworld-rg \
+          --docker-custom-image-name ${{ secrets.DOCKERHUB_USERNAME }}/helloworld-app:latest
 
     - name: Configure Azure Web App Port
       run: |
