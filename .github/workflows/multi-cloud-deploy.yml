@@ -3,13 +3,16 @@ name: Deploy to GCP and Azure
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch:
+  workflow_dispatch:   # <-- enables Run Workflow button
 
 jobs:
   multicloud-deploy:
     runs-on: ubuntu-latest
 
     steps:
+    # ---------------------------------------------------
+    # CHECKOUT REPOSITORY
+    # ---------------------------------------------------
     - name: Checkout code
       uses: actions/checkout@v3
 
@@ -19,7 +22,7 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v3
       with:
-        node-version: '18'
+        node-version: "18"
 
     - name: Install dependencies
       run: npm install
@@ -28,14 +31,15 @@ jobs:
       run: npm audit --audit-level=high
 
     # ---------------------------------------------------
-    # BUILD DOCKER IMAGE
+    # BUILD DOCKER IMAGE (COMMON FOR BOTH CLOUDS)
     # ---------------------------------------------------
     - name: Build Docker image
       run: docker build -t helloworld-app .
 
-    # ---------------------------------------------------
-    # PUSH & DEPLOY TO GCP CLOUD RUN
-    # ---------------------------------------------------
+    # ======================================================================
+    #                    GCP CLOUD RUN DEPLOYMENT
+    # ======================================================================
+
     - name: Authenticate to GCP
       uses: google-github-actions/auth@v2
       with:
@@ -56,19 +60,26 @@ jobs:
         region: us-central1
         image: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/helloworld-repo/helloworld-app:latest
 
-    # ---------------------------------------------------
-    # PUSH & DEPLOY TO AZURE APP SERVICE
-    # ---------------------------------------------------
+    # ======================================================================
+    #                    AZURE APP SERVICE DEPLOYMENT
+    # ======================================================================
+
     - name: Azure Login
       uses: azure/login@v1
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    - name: Build & Push to ACR
+    - name: Azure ACR Login
       run: |
-        az acr build \
-          --registry helloregistry123 \
-          --image helloworld-app:latest .
+        az acr login --name helloregistry123
+
+    - name: Build Docker image for Azure
+      run: |
+        docker build -t helloregistry123.azurecr.io/helloworld-app:latest .
+
+    - name: Push Docker image to ACR
+      run: |
+        docker push helloregistry123.azurecr.io/helloworld-app:latest
 
     - name: Deploy Azure Web App
       run: |
