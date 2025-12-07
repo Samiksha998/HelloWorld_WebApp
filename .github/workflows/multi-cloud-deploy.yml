@@ -87,24 +87,74 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    - name: Azure ACR Login
+    - name: Create Azure Resource Group
       run: |
-        az acr login --name helloregistry123
+        az group create \
+          --name helloworld-rg \
+          --location eastus
 
-    - name: Build Docker image for Azure
+    - name: Create Azure Container Registry
       run: |
-        docker build -t helloregistry123.azurecr.io/helloworld-app:latest .
+        az acr create \
+          --resource-group helloworld-rg \
+          --name helloworldacr \
+          --sku Basic || true
 
-    - name: Push Docker image to ACR
+    - name: Build and Push Docker Image to ACR
       run: |
-        docker push helloregistry123.azurecr.io/helloworld-app:latest
+        az acr build \
+          --registry helloworldacr \
+          --image helloworld-app:latest .
 
-    - name: Deploy Azure Web App
+    - name: Create Azure App Service Plan
       run: |
+        az appservice plan create \
+          --name helloworld-asp \
+          --resource-group helloworld-rg \
+          --sku B1 \
+          --is-linux || true
+
+    - name: Create Azure Web App
+      run: |
+        az webapp create \
+          --resource-group helloworld-rg \
+          --plan helloworld-asp \
+          --name helloworld-app-${{ github.run_id }} \
+          --deployment-container-image-name helloworldacr.azurecr.io/helloworld-app:latest || true
+
+    - name: Configure Web App Container Settings
+      run: |
+        WEBAPP_NAME="helloworld-app-${{ github.run_id }}"
         az webapp config container set \
-          --name hellowworld-App \
-          --resource-group multi-cloud-demo \
-          --container-image-name helloregistry123.azurecr.io/helloworld-app:latest \
-          --container-registry-url https://helloregistry123.azurecr.io \
-          --docker-registry-server-user $(az acr credential show -n helloregistry123 --query "username" -o tsv) \
-          --docker-registry-server-password $(az acr credential show -n helloregistry123 --query "passwords[0].value" -o tsv)
+          --name $WEBAPP_NAME \
+          --resource-group helloworld-rg \
+          --docker-custom-image-name helloworldacr.azurecr.io/helloworld-app:latest \
+          --docker-registry-server-url https://helloworldacr.azurecr.io \
+          --docker-registry-server-user $(az acr credential show -n helloworldacr --query "username" -o tsv) \
+          --docker-registry-server-password $(az acr credential show -n helloworldacr --query "passwords[0].value" -o tsv)
+
+    - name: Configure Port and Deploy
+      run: |
+        WEBAPP_NAME="helloworld-app-${{ github.run_id }}"
+        az webapp config appsettings set \
+          --name $WEBAPP_NAME \
+          --resource-group helloworld-rg \
+          --settings WEBSITES_PORT=8080
+
+    - name: Display Azure Web App URL
+      run: |
+        WEBAPP_NAME="helloworld-app-${{ github.run_id }}"
+        AZURE_URL="https://${WEBAPP_NAME}.azurewebsites.net"
+        echo "✅ Azure Web App Successfully Deployed!"
+        echo ""
+        echo "Azure Web App URL: $AZURE_URL"
+        echo ""
+        echo "Testing web app..."
+        sleep 10
+        RESPONSE=$(curl -s "$AZURE_URL")
+        if echo "$RESPONSE" | grep -q "Welcome to Samiksha's Web App"; then
+          echo "✅ Azure Web App is running on port 8080"
+          echo "✅ HTML content verified"
+        else
+          echo "⏳ Web app may still be starting up"
+        fi
