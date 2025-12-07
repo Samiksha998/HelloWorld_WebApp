@@ -1,0 +1,68 @@
+name: Deploy to GCP and Azure
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  multicloud-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    # ---------------------------------------------------
+    # BUILD DOCKER IMAGE
+    # ---------------------------------------------------
+    - name: Build Docker image
+      run: docker build -t helloworld-app .
+
+    # ---------------------------------------------------
+    # LOGIN TO GCP
+    # ---------------------------------------------------
+    - name: Authenticate to GCP
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: Configure Docker for Artifact Registry
+      run: gcloud auth configure-docker us-central1-docker.pkg.dev
+
+    # Tag & Push to Artifact Registry
+    - name: Push to GCP Artifact Registry
+      run: |
+        docker tag helloworld-app us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/hello-repo/helloworld-app:latest
+        docker push us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/hello-repo/helloworld-app:latest
+
+    # Deploy to Cloud Run
+    - name: Deploy to Cloud Run
+      uses: google-github-actions/deploy-cloudrun@v2
+      with:
+        service: helloworld-cloudrun
+        region: us-central1
+        image: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/hello-repo/helloworld-app:latest
+
+    # ---------------------------------------------------
+    # LOGIN TO AZURE
+    # ---------------------------------------------------
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    # Build & push image to ACR
+    - name: Build & Push to ACR
+      run: |
+        az acr build \
+          --registry helloregistry123 \
+          --image helloworld-app:latest .
+
+    # Deploy to Azure App Service
+    - name: Deploy Azure Web App
+      run: |
+        az webapp config container set \
+          --name helloworld-azureapp \
+          --resource-group multi-cloud-demo \
+          --docker-custom-image-name helloregistry123.azurecr.io/helloworld-app:latest \
+          --docker-registry-server-url https://helloregistry123.azurecr.io
