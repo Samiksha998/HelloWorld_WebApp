@@ -59,6 +59,7 @@ jobs:
         service: helloworld-cloudrun
         region: us-central1
         image: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/helloworld-repo/helloworld-app:latest
+        flags: --allow-unauthenticated --port=8080
 
     - name: Verify Cloud Run Web App on Port 8080
       run: |
