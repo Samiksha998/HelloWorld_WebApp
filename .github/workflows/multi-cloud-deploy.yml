@@ -95,15 +95,18 @@ jobs:
 
     - name: Create Azure Container Registry
       run: |
+        ACR_NAME="helloworldacr$(date +%s | tail -c 4)"
+        echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
         az acr create \
           --resource-group helloworld-rg \
-          --name helloworldacr \
-          --sku Basic || true
+          --name $ACR_NAME \
+          --sku Basic
 
     - name: Build and Push Docker Image to ACR
       run: |
+        ACR_NAME=${{ env.ACR_NAME }}
         az acr build \
-          --registry helloworldacr \
+          --registry $ACR_NAME \
           --image helloworld-app:latest .
 
     - name: Create Azure App Service Plan
@@ -116,22 +119,29 @@ jobs:
 
     - name: Create Azure Web App
       run: |
+        ACR_NAME=${{ env.ACR_NAME }}
+        WEBAPP_NAME="helloworld-app-${{ github.run_id }}"
         az webapp create \
           --resource-group helloworld-rg \
           --plan helloworld-asp \
-          --name helloworld-app-${{ github.run_id }} \
-          --deployment-container-image-name helloworldacr.azurecr.io/helloworld-app:latest || true
+          --name $WEBAPP_NAME \
+          --deployment-container-image-name ${ACR_NAME}.azurecr.io/helloworld-app:latest
 
     - name: Configure Web App Container Settings
       run: |
+        ACR_NAME=${{ env.ACR_NAME }}
         WEBAPP_NAME="helloworld-app-${{ github.run_id }}"
+        REGISTRY_URL="https://${ACR_NAME}.azurecr.io"
+        USERNAME=$(az acr credential show -n $ACR_NAME --query "username" -o tsv)
+        PASSWORD=$(az acr credential show -n $ACR_NAME --query "passwords[0].value" -o tsv)
+        
         az webapp config container set \
           --name $WEBAPP_NAME \
           --resource-group helloworld-rg \
-          --docker-custom-image-name helloworldacr.azurecr.io/helloworld-app:latest \
-          --docker-registry-server-url https://helloworldacr.azurecr.io \
-          --docker-registry-server-user $(az acr credential show -n helloworldacr --query "username" -o tsv) \
-          --docker-registry-server-password $(az acr credential show -n helloworldacr --query "passwords[0].value" -o tsv)
+          --docker-custom-image-name ${ACR_NAME}.azurecr.io/helloworld-app:latest \
+          --docker-registry-server-url $REGISTRY_URL \
+          --docker-registry-server-user $USERNAME \
+          --docker-registry-server-password $PASSWORD
 
     - name: Configure Port and Deploy
       run: |
