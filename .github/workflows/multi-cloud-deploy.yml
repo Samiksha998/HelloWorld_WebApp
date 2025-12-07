@@ -86,5 +86,7 @@ jobs:
         az webapp config container set \
           --name helloworld-azureapp \
           --resource-group multi-cloud-demo \
-          --docker-custom-image-name helloregistry123.azurecr.io/helloworld-app:latest \
-          --docker-registry-server-url https://helloregistry123.azurecr.io
+          --container-image-name helloregistry123.azurecr.io/helloworld-app:latest \
+          --container-registry-url https://helloregistry123.azurecr.io \
+          --docker-registry-server-user $(az acr credential show -n helloregistry123 --query "username" -o tsv) \
+          --docker-registry-server-password $(az acr credential show -n helloregistry123 --query "passwords[0].value" -o tsv)
