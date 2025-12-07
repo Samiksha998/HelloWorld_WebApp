@@ -99,7 +99,7 @@ jobs:
         az appservice plan create \
           --name helloworld-asp \
           --resource-group helloworld-rg \
-          --sku B1 \
+          --sku F1 \
           --is-linux
 
     - name: Verify App Service Plan
