@@ -84,7 +84,7 @@ jobs:
     - name: Deploy Azure Web App
       run: |
         az webapp config container set \
-          --name helloworld-azureapp \
+          --name Hellowworld-App \
           --resource-group multi-cloud-demo \
           --container-image-name helloregistry123.azurecr.io/helloworld-app:latest \
           --container-registry-url https://helloregistry123.azurecr.io \
