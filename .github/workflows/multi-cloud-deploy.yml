@@ -45,15 +45,15 @@ jobs:
 
     - name: Push to GCP Artifact Registry
       run: |
-        docker tag helloworld-app us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/hello-repo/helloworld-app:latest
-        docker push us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/hello-repo/helloworld-app:latest
+        docker tag helloworld-app us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/helloworld-repo/helloworld-app:latest
+        docker push us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/helloworld-repo/helloworld-app:latest
 
     - name: Deploy to Cloud Run
       uses: google-github-actions/deploy-cloudrun@v2
       with:
         service: helloworld-cloudrun
         region: us-central1
-        image: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/hello-repo/helloworld-app:latest
+        image: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/helloworld-repo/helloworld-app:latest
 
     # ---------------------------------------------------
     # PUSH & DEPLOY TO AZURE APP SERVICE
