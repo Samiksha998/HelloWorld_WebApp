@@ -60,6 +60,23 @@ jobs:
         region: us-central1
         image: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/helloworld-repo/helloworld-app:latest
 
+    - name: Verify Cloud Run Web App on Port 8080
+      run: |
+        SERVICE_URL=$(gcloud run services describe helloworld-cloudrun --region us-central1 --format='value(status.url)')
+        echo "Cloud Run Service URL: $SERVICE_URL"
+        echo ""
+        echo "Testing web app response..."
+        RESPONSE=$(curl -s "$SERVICE_URL")
+        if echo "$RESPONSE" | grep -q "Welcome to Samiksha's Web App"; then
+          echo "✅ Web app is successfully hosting on port 8080"
+          echo "✅ HTML content verified"
+          echo ""
+          echo "Web app is serving styled HTML page with welcome message"
+        else
+          echo "❌ Web app verification failed"
+          exit 1
+        fi
+
     # ======================================================================
     #                    AZURE APP SERVICE DEPLOYMENT
     # ======================================================================
