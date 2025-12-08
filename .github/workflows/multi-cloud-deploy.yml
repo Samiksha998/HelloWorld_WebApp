@@ -199,28 +199,52 @@ jobs:
           --docker-registry-server-user $USERNAME \
           --docker-registry-server-password $PASSWORD
 
-    - name: Configure Port and Deploy
+    - name: Configure Port and Enable Container Restart
       run: |
         WEBAPP_NAME="helloworld-app-${{ github.run_id }}"
+        echo "Configuring web app settings for $WEBAPP_NAME..."
         az webapp config appsettings set \
           --name $WEBAPP_NAME \
           --resource-group helloworld-rg \
           --settings WEBSITES_PORT=8080
+        
+        echo "Restarting web app to apply settings..."
+        az webapp restart \
+          --name $WEBAPP_NAME \
+          --resource-group helloworld-rg
+        
+        echo "Waiting for web app to fully start..."
+        sleep 30
 
-    - name: Display Azure Web App URL
+    - name: Display and Verify Azure Web App URL
       run: |
         WEBAPP_NAME="helloworld-app-${{ github.run_id }}"
         AZURE_URL="https://${WEBAPP_NAME}.azurewebsites.net"
         echo "✅ Azure Web App Successfully Deployed!"
         echo ""
-        echo "Azure Web App URL: $AZURE_URL"
+        echo "🌐 Azure Web App URL: $AZURE_URL"
         echo ""
-        echo "Testing web app..."
-        sleep 10
-        RESPONSE=$(curl -s "$AZURE_URL")
-        if echo "$RESPONSE" | grep -q "Welcome to Samiksha's Web App"; then
-          echo "✅ Azure Web App is running on port 8080"
-          echo "✅ HTML content verified"
-        else
-          echo "⏳ Web app may still be starting up"
-        fi
+        echo "Testing web app endpoint..."
+        
+        # Retry logic for web app startup
+        for i in {1..15}; do
+          echo "Attempt $i: Testing connection..."
+          if RESPONSE=$(curl -s -m 5 "$AZURE_URL" 2>/dev/null); then
+            if echo "$RESPONSE" | grep -q "Welcome to Samiksha's Web App"; then
+              echo "✅ Azure Web App is running on port 8080"
+              echo "✅ HTML content verified"
+              echo ""
+              echo "═══════════════════════════════════════════════════════"
+              echo "✅ DEPLOYMENT SUCCESSFUL"
+              echo "═══════════════════════════════════════════════════════"
+              echo "Web App URL: $AZURE_URL"
+              exit 0
+            fi
+          fi
+          if [ $i -lt 15 ]; then
+            echo "Web app starting up, waiting..."
+            sleep 10
+          fi
+        done
+        echo "⏳ Web app still initializing. It may take a few more minutes to fully start."
+        echo "Check the URL manually: $AZURE_URL"
