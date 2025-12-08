@@ -179,7 +179,7 @@ jobs:
 
     - name: Create Azure Web App
       run: |
-        WEBAPP_NAME="helloworld"
+        WEBAPP_NAME="helloworld-2603"
         echo "WEBAPP_NAME=$WEBAPP_NAME" >> $GITHUB_ENV
 
         ACR_NAME=${{ env.ACR_NAME }}
