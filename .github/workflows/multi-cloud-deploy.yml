@@ -70,12 +70,12 @@ jobs:
         echo "Testing web app response..."
         RESPONSE=$(curl -s "$SERVICE_URL")
         if echo "$RESPONSE" | grep -q "Welcome to Samiksha's Web App"; then
-          echo "✅ Web app is successfully hosting on port 8080"
-          echo "✅ HTML content verified"
+          echo "Web app is successfully hosting on port 8080"
+          echo "HTML content verified"
           echo ""
           echo "Web app is serving styled HTML page with welcome message"
         else
-          echo "❌ Web app verification failed"
+          echo "Web app verification failed"
           exit 1
         fi
 
@@ -94,7 +94,7 @@ jobs:
         az provider register --namespace Microsoft.ContainerRegistry --wait
         echo "Registering Microsoft.Web provider..."
         az provider register --namespace Microsoft.Web --wait
-        echo "✅ Resource providers registered"
+        echo "Resource providers registered"
 
     - name: Find Available Azure Region and Create Resource Group
       run: |
@@ -106,7 +106,7 @@ jobs:
           echo "Trying region: $region"
           if az group create --name helloworld-rg --location $region 2>&1 | grep -q "created\|already exists"; then
             SELECTED_REGION=$region
-            echo "✅ Using region: $SELECTED_REGION"
+            echo "Using region: $SELECTED_REGION"
             echo "AZURE_REGION=$SELECTED_REGION" >> $GITHUB_ENV
             break
           fi
@@ -138,35 +138,13 @@ jobs:
 
         # Push the image to ACR
         docker push ${ACR_NAME}.azurecr.io/helloworld-app:latest
-    - name: Create App Service Plan (B1 - Basic Tier)
-      run: |
-        echo "Creating App Service Plan with B1 Basic tier..."
-        echo "Plan Name: helloworld-asp"
-        echo "SKU: B1 (Basic - 1 vCPU, 1.75 GB RAM)"
-        echo "Features: Custom domains, SSL, autoscaling, 5 app deployments"
-        echo ""
-        
-        az appservice plan create \
-          --name helloworld-asp \
-          --resource-group helloworld-rg \
-          --sku B1 \
-          --is-linux
-        
-        if [ $? -eq 0 ]; then
-          echo "✅ App Service Plan created successfully with B1 tier"
-          echo ""
-          echo "Plan Details:"
-          az appservice plan show --name helloworld-asp --resource-group helloworld-rg --query "{Name:name, SKU:sku.name, Tier:sku.tier}"
-        else
-          echo "❌ Failed to create B1 plan. Check quota limits."
-          exit 1
-        fi
+
 
     - name: Create Azure Web App
       run: |
-        WEBAPP_NAME="helloworld-app-${{ github.run_id }}"
+        WEBAPP_NAME="Hellowworld-App"
         echo "WEBAPP_NAME=$WEBAPP_NAME" >> $GITHUB_ENV
-        
+
         az webapp create \
           --resource-group helloworld-rg \
           --plan helloworld-asp \
@@ -190,93 +168,42 @@ jobs:
 
     - name: Configure Port and Enable Container Restart
       run: |
-        WEBAPP_NAME="helloworld-app-${{ github.run_id }}"
+        WEBAPP_NAME=${{ env.WEBAPP_NAME }}
         echo "Configuring web app settings for $WEBAPP_NAME..."
         az webapp config appsettings set \
           --name $WEBAPP_NAME \
           --resource-group helloworld-rg \
           --settings WEBSITES_PORT=8080
-        
+
         echo "Restarting web app to apply settings..."
         az webapp restart \
           --name $WEBAPP_NAME \
           --resource-group helloworld-rg
-        
+
         echo "Waiting for web app to fully start..."
         sleep 30
 
     - name: Display and Verify Azure Web App URL
       run: |
-        WEBAPP_NAME="helloworld-app-${{ github.run_id }}"
+        WEBAPP_NAME=${{ env.WEBAPP_NAME }}
         AZURE_URL="https://${WEBAPP_NAME}.azurewebsites.net"
-        echo "✅ Azure Web App Successfully Deployed!"
-        echo ""
-        echo "🌐 Azure Web App URL: $AZURE_URL"
-        echo ""
+        echo "Azure Web App URL: $AZURE_URL"
         echo "Testing web app endpoint..."
-        
-        # Retry logic for web app startup
-        for i in {1..15}; do
-          echo "Attempt $i: Testing connection..."
-          if RESPONSE=$(curl -s -m 5 "$AZURE_URL" 2>/dev/null); then
-            if echo "$RESPONSE" | grep -q "Welcome to Samiksha's Web App"; then
-              echo "✅ Azure Web App is running on port 8080"
-              echo "✅ HTML content verified"
-              echo ""
-              echo "═══════════════════════════════════════════════════════"
-              echo "✅ DEPLOYMENT SUCCESSFUL"
-              echo "═══════════════════════════════════════════════════════"
-              echo "Web App URL: $AZURE_URL"
-              exit 0
-            fi
-          fi
-          if [ $i -lt 15 ]; then
-            echo "Web app starting up, waiting..."
-            sleep 10
-          fi
-        done
-        echo "⏳ Web app still initializing. It may take a few more minutes to fully start."
-        echo "Check the URL manually: $AZURE_URL"
 
-    # ======================================================================
-    #                    DEPLOYMENT SUMMARY
-    # ======================================================================
-    - name: Multi-Cloud Deployment Summary
+        # Retry logic for web app startup
+        for i in {1..10}; do
+          echo "Attempt $i"
+          RESPONSE=$(curl -s -m 5 "$AZURE_URL" 2>/dev/null) || true
+          if echo "$RESPONSE" | grep -q "Welcome to Samiksha's Web App"; then
+            echo "Azure Web App is running on port 8080"
+            echo "HTML content verified"
+            exit 0
+          fi
+          sleep 5
+        done
+        echo "Web app may still be starting. Check the URL manually: $AZURE_URL"
+
+    - name: Deployment Complete
       run: |
-        echo ""
-        echo "╔════════════════════════════════════════════════════════════╗"
-        echo "║         🚀 MULTI-CLOUD DEPLOYMENT COMPLETE 🚀             ║"
-        echo "╚════════════════════════════════════════════════════════════╝"
-        echo ""
-        echo "✅ GCP CLOUD RUN"
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        GCP_URL=${{ env.GCP_URL }}
-        echo "URL: $GCP_URL"
-        echo "Region: us-central1"
-        echo "Status: ✅ Running on port 8080"
-        echo ""
-        
-        echo "✅ AZURE APP SERVICE"
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        WEBAPP_NAME="helloworld-app-${{ github.run_id }}"
-        AZURE_URL="https://${WEBAPP_NAME}.azurewebsites.net"
-        echo "URL: $AZURE_URL"
-        echo "Region: ${{ env.AZURE_REGION }}"
-        echo "Plan: B1 (Basic - 1 vCPU, 1.75 GB RAM)"
-        echo "Status: ✅ Running on port 8080"
-        echo ""
-        
-        echo "🔗 TEST YOUR DEPLOYMENT"
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "GCP Cloud Run:    curl $GCP_URL"
-        echo "Azure App Service: curl $AZURE_URL"
-        echo ""
-        
-        echo "📊 DEPLOYMENT DETAILS"
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "Commit: ${{ github.sha }}"
-        echo "Branch: ${{ github.ref }}"
-        echo "Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-        echo ""
-        echo "✨ Both deployments are live and serving your web app! ✨"
+        echo "Deployment complete. Check above steps for details and URLs."
 
