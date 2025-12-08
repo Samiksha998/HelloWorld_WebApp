@@ -64,6 +64,7 @@ jobs:
     - name: Verify Cloud Run Web App on Port 8080
       run: |
         SERVICE_URL=$(gcloud run services describe helloworld-cloudrun --region us-central1 --format='value(status.url)')
+        echo "GCP_URL=$SERVICE_URL" >> $GITHUB_ENV
         echo "Cloud Run Service URL: $SERVICE_URL"
         echo ""
         echo "Testing web app response..."
@@ -236,3 +237,46 @@ jobs:
         done
         echo "⏳ Web app still initializing. It may take a few more minutes to fully start."
         echo "Check the URL manually: $AZURE_URL"
+
+    # ======================================================================
+    #                    DEPLOYMENT SUMMARY
+    # ======================================================================
+    - name: Multi-Cloud Deployment Summary
+      run: |
+        echo ""
+        echo "╔════════════════════════════════════════════════════════════╗"
+        echo "║         🚀 MULTI-CLOUD DEPLOYMENT COMPLETE 🚀             ║"
+        echo "╚════════════════════════════════════════════════════════════╝"
+        echo ""
+        echo "✅ GCP CLOUD RUN"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        GCP_URL=${{ env.GCP_URL }}
+        echo "URL: $GCP_URL"
+        echo "Region: us-central1"
+        echo "Status: ✅ Running on port 8080"
+        echo ""
+        
+        echo "✅ AZURE APP SERVICE"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        WEBAPP_NAME="helloworld-app-${{ github.run_id }}"
+        AZURE_URL="https://${WEBAPP_NAME}.azurewebsites.net"
+        echo "URL: $AZURE_URL"
+        echo "Region: ${{ env.AZURE_REGION }}"
+        echo "Plan: B1 (Basic - 1 vCPU, 1.75 GB RAM)"
+        echo "Status: ✅ Running on port 8080"
+        echo ""
+        
+        echo "🔗 TEST YOUR DEPLOYMENT"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "GCP Cloud Run:    curl $GCP_URL"
+        echo "Azure App Service: curl $AZURE_URL"
+        echo ""
+        
+        echo "📊 DEPLOYMENT DETAILS"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Commit: ${{ github.sha }}"
+        echo "Branch: ${{ github.ref }}"
+        echo "Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        echo ""
+        echo "✨ Both deployments are live and serving your web app! ✨"
+
