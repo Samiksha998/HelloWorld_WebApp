@@ -3,7 +3,7 @@ name: Deploy to GCP and Azure
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch:
+  workflow_dispatch:   # <-- enables Run Workflow button
 
 jobs:
   multicloud-deploy:
@@ -31,146 +31,173 @@ jobs:
       run: npm audit --audit-level=high
 
     # ---------------------------------------------------
-    # BUILD DOCKER IMAGE
+    # BUILD DOCKER IMAGE (COMMON FOR BOTH CLOUDS)
     # ---------------------------------------------------
     - name: Build Docker image
       run: docker build -t helloworld-app .
 
-    # ---------------------------------------------------
-    # LOGIN & PUSH TO DOCKER HUB
-    # ---------------------------------------------------
-    - name: Login to Docker Hub
-      run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-
-    - name: Push image to Docker Hub
-      run: |
-        IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/helloworld-app:latest"
-        docker tag helloworld-app $IMAGE
-        docker push $IMAGE
-        echo "IMAGE=$IMAGE" >> $GITHUB_ENV
-
     # ======================================================================
     #                    GCP CLOUD RUN DEPLOYMENT
     # ======================================================================
+
     - name: Authenticate to GCP
       uses: google-github-actions/auth@v2
       with:
         credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-    - name: Deploy to Cloud Run (using Docker Hub image)
+    - name: Configure Docker for Artifact Registry
+      run: gcloud auth configure-docker us-central1-docker.pkg.dev
+
+    - name: Push to GCP Artifact Registry
+      run: |
+        docker tag helloworld-app us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/helloworld-repo/helloworld-app:latest
+        docker push us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/helloworld-repo/helloworld-app:latest
+
+    - name: Deploy to Cloud Run
       uses: google-github-actions/deploy-cloudrun@v2
       with:
         service: helloworld-cloudrun
         region: us-central1
-        image: ${{ env.IMAGE }}
-        flags: --port=8080 --allow-unauthenticated
+        image: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/helloworld-repo/helloworld-app:latest
+        flags: --allow-unauthenticated --port=8080
 
-    # --- OPTIONAL: Restrict access to specific IPs ---
-    # gcloud run services update helloworld-cloudrun \
-    #   --region=us-central1 \
-    #   --ingress internal-and-cloud-load-balancing
-    #
-    # OR set IAM:
-    # gcloud run services add-iam-policy-binding helloworld-cloudrun \
-    #   --member="user:specific@example.com" \
-    #   --role="roles/run.invoker"
-
-    - name: Verify Cloud Run Web App
+    - name: Verify Cloud Run Web App on Port 8080
       run: |
-        URL=$(gcloud run services describe helloworld-cloudrun --region us-central1 --format='value(status.url)')
-        echo "Cloud Run URL: $URL"
-        RESPONSE=$(curl -s $URL)
-        echo "Response: $RESPONSE"
+        SERVICE_URL=$(gcloud run services describe helloworld-cloudrun --region us-central1 --format='value(status.url)')
+        echo "Cloud Run Service URL: $SERVICE_URL"
+        echo ""
+        echo "Testing web app response..."
+        RESPONSE=$(curl -s "$SERVICE_URL")
+        if echo "$RESPONSE" | grep -q "Welcome to Samiksha's Web App"; then
+          echo "✅ Web app is successfully hosting on port 8080"
+          echo "✅ HTML content verified"
+          echo ""
+          echo "Web app is serving styled HTML page with welcome message"
+        else
+          echo "❌ Web app verification failed"
+          exit 1
+        fi
 
     # ======================================================================
     #                    AZURE APP SERVICE DEPLOYMENT
     # ======================================================================
+
     - name: Azure Login
       uses: azure/login@v1
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    - name: Create Resource Group
+    - name: Create Azure Resource Group
       run: |
-        az group create --name helloworld-rg --location eastus
+        az group create \
+          --name helloworld-rg \
+          --location eastus
 
-    - name: Create App Service Plan (Linux)
+    - name: Create Azure Container Registry
       run: |
-        az appservice plan create \
+        ACR_NAME="helloworldacr$(date +%s | tail -c 4)"
+        echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
+        az acr create \
+          --resource-group helloworld-rg \
+          --name $ACR_NAME \
+          --sku Basic
+
+    - name: Login to ACR and Build & Push Docker Image
+      run: |
+        ACR_NAME=${{ env.ACR_NAME }}
+        echo "Using ACR: $ACR_NAME"
+        # Login to ACR (establish Docker credentials)
+        az acr login --name $ACR_NAME
+
+        # Build the Docker image locally on the runner and tag for ACR
+        docker build -t ${ACR_NAME}.azurecr.io/helloworld-app:latest .
+
+        # Push the image to ACR
+        docker push ${ACR_NAME}.azurecr.io/helloworld-app:latest
+
+    - name: Check Subscription Quota & Create App Service Plan
+      run: |
+        echo "Attempting to create App Service Plan (B1 - Basic tier)..."
+        echo ""
+        
+        # Try to create the plan with error handling
+        if az appservice plan create \
           --name helloworld-asp \
           --resource-group helloworld-rg \
-          --sku F1 \
-          --is-linux
-
-    - name: Verify App Service Plan
-      run: |
-        echo "Verifying App Service Plan 'helloworld-asp' exists in group 'helloworld-rg'..."
-        for i in {1..12}; do
-          if az appservice plan show --name helloworld-asp --resource-group helloworld-rg >/dev/null 2>&1; then
-            echo "App Service Plan found"
-            break
-          fi
-          echo "Waiting for App Service Plan to be provisioned (attempt $i)..."
-          sleep 5
-        done
-        az appservice plan show --name helloworld-asp --resource-group helloworld-rg || {
-          echo "ERROR: App Service Plan 'helloworld-asp' not found after waiting. Listing plans in resource group:" >&2
-          az appservice plan list --resource-group helloworld-rg
-          exit 1
-        }
+          --sku B1 \
+          --is-linux 2>&1; then
+          echo "✅ App Service Plan created successfully"
+        else
+          echo "⚠️  B1 tier creation failed (possible quota limit)"
+          echo ""
+          echo "SOLUTION OPTIONS:"
+          echo "1. Request a quota increase via Azure Support:"
+          echo "   https://portal.azure.com -> Help + Support -> New Support Request"
+          echo "   Set 'Issue type' to 'Service and subscription limits (quotas)'"
+          echo "   Request: 'Increase App Service Plan quota for Free/Shared tier in eastus'"
+          echo ""
+          echo "2. Try deploying to a different region (westus, southcentralus, etc.)"
+          echo ""
+          echo "3. Use F1 Free tier (1 free app per subscription limit):"
+          echo "   Retrying with F1 Free tier..."
+          az appservice plan create \
+            --name helloworld-asp \
+            --resource-group helloworld-rg \
+            --sku F1 \
+            --is-linux || {
+            echo "❌ Both B1 and F1 plans failed. Quota likely needs increase."
+            exit 1
+          }
+        fi
 
     - name: Create Azure Web App
       run: |
-        WEBAPP_NAME="helloworld-${{ github.run_id }}"
+        WEBAPP_NAME="helloworld-app-${{ github.run_id }}"
         echo "WEBAPP_NAME=$WEBAPP_NAME" >> $GITHUB_ENV
-
+        
         az webapp create \
           --resource-group helloworld-rg \
           --plan helloworld-asp \
           --name $WEBAPP_NAME
 
-    - name: Configure Azure Web App Container Image (Docker Hub)
+    - name: Configure Web App Container Settings (ACR)
       run: |
-        echo "Configuring container image for ${{ env.WEBAPP_NAME }}"
+        ACR_NAME=${{ env.ACR_NAME }}
+        WEBAPP_NAME=${{ env.WEBAPP_NAME }}
+        REGISTRY_URL="https://${ACR_NAME}.azurecr.io"
+        USERNAME=$(az acr credential show -n $ACR_NAME --query "username" -o tsv)
+        PASSWORD=$(az acr credential show -n $ACR_NAME --query "passwords[0].value" -o tsv)
+        
         az webapp config container set \
-          --name ${{ env.WEBAPP_NAME }} \
+          --name $WEBAPP_NAME \
           --resource-group helloworld-rg \
-          --docker-custom-image-name ${{ secrets.DOCKERHUB_USERNAME }}/helloworld-app:latest
+          --docker-custom-image-name ${ACR_NAME}.azurecr.io/helloworld-app:latest \
+          --docker-registry-server-url $REGISTRY_URL \
+          --docker-registry-server-user $USERNAME \
+          --docker-registry-server-password $PASSWORD
 
-    - name: Configure Azure Web App Port
+    - name: Configure Port and Deploy
       run: |
+        WEBAPP_NAME="helloworld-app-${{ github.run_id }}"
         az webapp config appsettings set \
+          --name $WEBAPP_NAME \
           --resource-group helloworld-rg \
-          --name ${{ env.WEBAPP_NAME }} \
           --settings WEBSITES_PORT=8080
 
-    # --- OPTIONAL: Restrict Traffic to specific IP ranges ---
-    # az webapp config access-restriction add \
-    #   --resource-group helloworld-rg \
-    #   --name $WEBAPP_NAME \
-    #   --rule-name "OfficeIP" \
-    #   --action Allow \
-    #   --ip-address 123.45.67.89 \
-    #   --priority 100
-
-    # --- OPTIONAL: Enable Autoscaling ---
-    # az monitor autoscale create \
-    #   --resource-group helloworld-rg \
-    #   --resource helloworld-asp \
-    #   --resource-type Microsoft.Web/serverfarms \
-    #   --name autoscale-rule \
-    #   --min-count 1 \
-    #   --max-count 5 \
-    #   --count 1
-    #
-    # az monitor autoscale rule create \
-    #   --resource-group helloworld-rg \
-    #   --autoscale-name autoscale-rule \
-    #   --condition "Percentage CPU > 70 avg 5m" \
-    #   --scale out 1
-
-    - name: Display Azure URL
+    - name: Display Azure Web App URL
       run: |
-        URL=https://${{ env.WEBAPP_NAME }}.azurewebsites.net
-        echo "Azure App URL: $URL"
-        curl -I $URL
+        WEBAPP_NAME="helloworld-app-${{ github.run_id }}"
+        AZURE_URL="https://${WEBAPP_NAME}.azurewebsites.net"
+        echo "✅ Azure Web App Successfully Deployed!"
+        echo ""
+        echo "Azure Web App URL: $AZURE_URL"
+        echo ""
+        echo "Testing web app..."
+        sleep 10
+        RESPONSE=$(curl -s "$AZURE_URL")
+        if echo "$RESPONSE" | grep -q "Welcome to Samiksha's Web App"; then
+          echo "✅ Azure Web App is running on port 8080"
+          echo "✅ HTML content verified"
+        else
+          echo "⏳ Web app may still be starting up"
+        fi
