@@ -95,11 +95,26 @@ jobs:
         az provider register --namespace Microsoft.Web --wait
         echo "✅ Resource providers registered"
 
-    - name: Create Azure Resource Group
+    - name: Find Available Azure Region and Create Resource Group
       run: |
-        az group create \
-          --name helloworld-rg \
-          --location eastus
+        REGIONS=("eastus" "westus" "southcentralus" "canadacentral" "northeurope" "westeurope")
+        SELECTED_REGION=""
+        
+        echo "Attempting to find available region for deployment..."
+        for region in "${REGIONS[@]}"; do
+          echo "Trying region: $region"
+          if az group create --name helloworld-rg --location $region 2>&1 | grep -q "created\|already exists"; then
+            SELECTED_REGION=$region
+            echo "✅ Using region: $SELECTED_REGION"
+            echo "AZURE_REGION=$SELECTED_REGION" >> $GITHUB_ENV
+            break
+          fi
+        done
+        
+        if [ -z "$SELECTED_REGION" ]; then
+          echo "❌ No available region found. All regions exhausted or error occurred."
+          exit 1
+        fi
 
     - name: Create Azure Container Registry
       run: |
