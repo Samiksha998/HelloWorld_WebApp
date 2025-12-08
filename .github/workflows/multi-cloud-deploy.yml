@@ -152,18 +152,22 @@ jobs:
           --name $ACR_NAME \
           --sku Basic
 
-    - name: Login to ACR and Build & Push Docker Image
+    - name: Enable ACR Admin and Login
       run: |
         ACR_NAME=${{ env.ACR_NAME }}
-        echo "Using ACR: $ACR_NAME"
-        # Login to ACR (establish Docker credentials)
+        echo "Enabling admin credentials on ACR: $ACR_NAME"
+        az acr update -n $ACR_NAME --admin-enabled true
+        echo "Logging in to ACR..."
         az acr login --name $ACR_NAME
 
-        # Build the Docker image locally on the runner and tag for ACR
+    - name: Build and Push Docker Image to ACR
+      run: |
+        ACR_NAME=${{ env.ACR_NAME }}
+        echo "Building Docker image for ACR: $ACR_NAME"
         docker build -t ${ACR_NAME}.azurecr.io/helloworld-app:latest .
-
-        # Push the image to ACR
+        echo "Pushing image to ACR..."
         docker push ${ACR_NAME}.azurecr.io/helloworld-app:latest
+        echo "Image pushed successfully"
 
 
     - name: Create Azure Web App
