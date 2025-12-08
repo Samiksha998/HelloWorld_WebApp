@@ -220,7 +220,8 @@ jobs:
     - name: Display and Verify Azure Web App URL
       run: |
         WEBAPP_NAME=${{ env.WEBAPP_NAME }}
-        AZURE_URL="https://${WEBAPP_NAME}.azurewebsites.net"
+        WEBAPP_NAME_LOWER=$(echo "$WEBAPP_NAME" | tr '[:upper:]' '[:lower:]')
+        AZURE_URL="https://${WEBAPP_NAME_LOWER}.azurewebsites.net"
         echo "Azure Web App URL: $AZURE_URL"
         echo "Testing web app endpoint..."
 
