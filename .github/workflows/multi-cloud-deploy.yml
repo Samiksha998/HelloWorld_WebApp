@@ -37,6 +37,19 @@ jobs:
       run: docker build -t helloworld-app .
 
     # ======================================================================
+    #                    📌 OPTIONAL SECURITY BLOCK (COMMENTED)
+    # ======================================================================
+    # --- START :: DOCKER IMAGE SECURITY SCAN (TRIVY) ---
+    # - name: Security Scan Docker Image
+    #   uses: aquasecurity/trivy-action@master
+    #   with:
+    #     image-ref: helloworld-app
+    #     severity: HIGH,CRITICAL
+    #     exit-code: 0
+    # --- END :: DOCKER IMAGE SECURITY SCAN ---
+    # ======================================================================
+
+    # ======================================================================
     #                    GCP CLOUD RUN DEPLOYMENT
     # ======================================================================
 
@@ -60,6 +73,21 @@ jobs:
         region: us-central1
         image: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/helloworld-repo/helloworld-app:latest
         flags: --allow-unauthenticated --port=8080
+
+    # ======================================================================
+    #                   📌 OPTIONAL GCP AUTOSCALING BLOCK
+    # ======================================================================
+    # --- START :: GCP CLOUD RUN AUTOSCALING ---
+    # - name: Configure Cloud Run Autoscaling
+    #   run: |
+    #     gcloud run services update helloworld-cloudrun \
+    #       --region us-central1 \
+    #       --min-instances 1 \
+    #       --max-instances 5 \
+    #       --concurrency 80 \
+    #       --cpu-throttling
+    # --- END :: GCP CLOUD RUN AUTOSCALING ---
+    # ======================================================================
 
     - name: Verify Cloud Run Web App on Port 8080
       run: |
@@ -98,24 +126,19 @@ jobs:
 
     - name: Set Azure resource names (use existing plan)
       run: |
-        # Use the App Service Plan and Resource Group you showed in your local 'az' output
         RG="multi-cloud-demo"
         PLAN="ASP-multiclouddemo-b415"
         echo "AZURE_RESOURCE_GROUP=$RG" >> $GITHUB_ENV
         echo "AZURE_APP_SERVICE_PLAN=$PLAN" >> $GITHUB_ENV
-        # Try to detect the resource group's location and export AZURE_REGION if found
         LOCATION=$(az group show --name "$RG" --query location -o tsv 2>/dev/null || echo "")
         if [ -n "$LOCATION" ]; then
           echo "AZURE_REGION=$LOCATION" >> $GITHUB_ENV
           echo "Detected resource group location: $LOCATION"
         else
           echo "AZURE_REGION=" >> $GITHUB_ENV
-          echo "Resource group $RG not found locally via az group show; subsequent steps may create or select region."
-        fi
 
-    - name: Find or Create Azure Resource Group (uses existing if present)
+    - name: Find or Create Azure Resource Group
       run: |
-        # Use provided resource group if set above; otherwise fall back to creating helloworld-rg
         RG=${{ env.AZURE_RESOURCE_GROUP }}
         if [ -n "$RG" ] && az group exists --name "$RG"; then
           echo "Resource group $RG already exists. Using existing group."
@@ -125,7 +148,7 @@ jobs:
           RG="helloworld-rg"
           REGIONS=("eastus" "westus" "southcentralus" "canadacentral" "northeurope" "westeurope")
           SELECTED_REGION=""
-          echo "Attempting to find available region for new resource group..."
+          echo "Attempting to find available region..."
           for region in "${REGIONS[@]}"; do
             echo "Trying region: $region"
             if az group create --name $RG --location $region 2>&1 | grep -q "created\|already exists"; then
@@ -136,10 +159,9 @@ jobs:
             fi
           done
           if [ -z "$SELECTED_REGION" ]; then
-            echo "❌ No available region found. All regions exhausted or error occurred."
+            echo "❌ No available region found."
             exit 1
           fi
-          # export chosen RG name so later steps reference it
           echo "AZURE_RESOURCE_GROUP=$RG" >> $GITHUB_ENV
         fi
 
@@ -148,9 +170,8 @@ jobs:
         ACR_NAME="helloworldacr084"
         echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
         
-        # Check if ACR already exists
         if az acr show --name $ACR_NAME --resource-group ${{ env.AZURE_RESOURCE_GROUP }} &>/dev/null; then
-          echo "ACR $ACR_NAME already exists, reusing it"
+          echo "ACR $ACR_NAME already exists"
         else
           echo "Creating new ACR: $ACR_NAME"
           az acr create \
@@ -162,20 +183,24 @@ jobs:
     - name: Enable ACR Admin and Login
       run: |
         ACR_NAME=${{ env.ACR_NAME }}
-        echo "Enabling admin credentials on ACR: $ACR_NAME"
         az acr update -n $ACR_NAME --admin-enabled true
-        echo "Logging in to ACR..."
         az acr login --name $ACR_NAME
 
     - name: Build and Push Docker Image to ACR
       run: |
         ACR_NAME=${{ env.ACR_NAME }}
-        echo "Building Docker image for ACR: $ACR_NAME"
         docker build -t ${ACR_NAME}.azurecr.io/helloworld-app:latest .
-        echo "Pushing image to ACR..."
         docker push ${ACR_NAME}.azurecr.io/helloworld-app:latest
-        echo "Image pushed successfully"
 
+    # ======================================================================
+    #      📌 OPTIONAL ACR SECURITY CHECK (COMMENTED)
+    # ======================================================================
+    # --- START :: ACR IMAGE SECURITY SCAN ---
+    # - name: Scan Image in ACR
+    #   run: |
+    #     az acr run --registry ${{ env.ACR_NAME }} --cmd "trivy fs /" /dev/null
+    # --- END :: ACR IMAGE SECURITY SCAN ---
+    # ======================================================================
 
     - name: Create Azure Web App
       run: |
@@ -185,11 +210,9 @@ jobs:
         ACR_NAME=${{ env.ACR_NAME }}
         IMAGE_NAME=${ACR_NAME}.azurecr.io/helloworld-app:latest
 
-        # Check if web app already exists, if not create it
         if az webapp show --name $WEBAPP_NAME --resource-group ${{ env.AZURE_RESOURCE_GROUP }} &>/dev/null; then
-          echo "Web app $WEBAPP_NAME already exists, skipping creation"
+          echo "Web app $WEBAPP_NAME already exists"
         else
-          echo "Creating web app: $WEBAPP_NAME"
           az webapp create \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --plan ${{ env.AZURE_APP_SERVICE_PLAN }} \
@@ -197,50 +220,65 @@ jobs:
             --deployment-container-image-name $IMAGE_NAME
         fi
 
-        # Enable managed identity
-        echo "Enabling managed identity on web app..."
         az webapp identity assign --name $WEBAPP_NAME --resource-group ${{ env.AZURE_RESOURCE_GROUP }}
 
-        # Grant AcrPull role to managed identity
-        echo "Granting AcrPull role to managed identity..."
         PRINCIPAL_ID=$(az webapp identity show --name $WEBAPP_NAME --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query principalId -o tsv)
         ACR_ID=$(az acr show --name $ACR_NAME --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query id -o tsv)
-        az role assignment create --assignee $PRINCIPAL_ID --role AcrPull --scope $ACR_ID 2>/dev/null || echo "Role assignment already exists"
+        az role assignment create --assignee $PRINCIPAL_ID --role AcrPull --scope $ACR_ID 2>/dev/null || true
 
-    - name: Configure Web App Container Settings (Managed Identity)
+    - name: Configure Web App Container Settings
       run: |
         ACR_NAME=${{ env.ACR_NAME }}
         WEBAPP_NAME=${{ env.WEBAPP_NAME }}
         REGISTRY_URL="https://${ACR_NAME}.azurecr.io"
         IMAGE="${ACR_NAME}.azurecr.io/helloworld-app:latest"
 
-        echo "Configuring container with managed identity..."
-        echo "Image: $IMAGE"
-        echo "Registry: $REGISTRY_URL"
-        
-        # Configure container using managed identity (no explicit credentials)
         az webapp config container set \
           --name $WEBAPP_NAME \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --container-image-name $IMAGE \
           --container-registry-url $REGISTRY_URL
 
-    - name: Configure Port and Enable Container Restart
+    - name: Configure Port and Restart Web App
       run: |
         WEBAPP_NAME=${{ env.WEBAPP_NAME }}
-        echo "Configuring web app settings for $WEBAPP_NAME..."
         az webapp config appsettings set \
           --name $WEBAPP_NAME \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --settings WEBSITES_PORT=8080
 
-        echo "Restarting web app to apply settings..."
-        az webapp restart \
-          --name $WEBAPP_NAME \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }}
+        az webapp restart --name $WEBAPP_NAME --resource-group ${{ env.AZURE_RESOURCE_GROUP }}
 
-        echo "Waiting for web app to fully start..."
         sleep 30
+
+    # ======================================================================
+    #            📌 OPTIONAL AZURE AUTOSCALE BLOCK (COMMENTED)
+    # ======================================================================
+    # --- START :: ENABLE AUTOSCALE FOR APP SERVICE PLAN ---
+    # - name: Enable Azure App Service Autoscaling
+    #   run: |
+    #     az monitor autoscale create \
+    #       --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+    #       --resource ${{ env.AZURE_APP_SERVICE_PLAN }} \
+    #       --resource-type "Microsoft.Web/serverfarms" \
+    #       --name "autoscale-rule" \
+    #       --min-count 1 \
+    #       --max-count 3 \
+    #       --count 1
+    #
+    #     az monitor autoscale rule create \
+    #       --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+    #       --autoscale-name "autoscale-rule" \
+    #       --scale out 1 \
+    #       --condition "Percentage CPU > 70 avg 5m"
+    #
+    #     az monitor autoscale rule create \
+    #       --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+    #       --autoscale-name "autoscale-rule" \
+    #       --scale in 1 \
+    #       --condition "Percentage CPU < 30 avg 10m"
+    # --- END :: ENABLE AUTOSCALE ---
+    # ======================================================================
 
     - name: Display and Verify Azure Web App URL
       run: |
@@ -249,20 +287,16 @@ jobs:
         echo "Azure Web App URL: $AZURE_URL"
         echo "Testing web app endpoint..."
 
-        # Retry logic for web app startup
         for i in {1..10}; do
           echo "Attempt $i"
           RESPONSE=$(curl -s -m 5 "$AZURE_URL" 2>/dev/null) || true
           if echo "$RESPONSE" | grep -q "Welcome to Samiksha's Web App"; then
-            echo "Azure Web App is running on port 8080"
-            echo "HTML content verified"
+            echo "Azure Web App is running"
             exit 0
           fi
           sleep 5
         done
-        echo "Web app may still be starting. Check the URL manually: $AZURE_URL"
+        echo "Web app may still be starting. Check manually: $AZURE_URL"
 
     - name: Deployment Complete
-      run: |
-        echo "Deployment complete. Check above steps for details and URLs."
-
+      run: echo "Deployment complete."
