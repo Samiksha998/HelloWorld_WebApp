@@ -171,10 +171,14 @@ jobs:
         WEBAPP_NAME="Hellowworld-App"
         echo "WEBAPP_NAME=$WEBAPP_NAME" >> $GITHUB_ENV
 
+        ACR_NAME=${{ env.ACR_NAME }}
+        IMAGE_NAME=${ACR_NAME}.azurecr.io/helloworld-app:latest
+
         az webapp create \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --plan ${{ env.AZURE_APP_SERVICE_PLAN }} \
-          --name $WEBAPP_NAME
+          --name $WEBAPP_NAME \
+          --deployment-container-image-name $IMAGE_NAME
 
     - name: Configure Web App Container Settings (ACR)
       run: |
