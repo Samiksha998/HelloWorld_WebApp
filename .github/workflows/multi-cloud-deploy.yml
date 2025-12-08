@@ -162,7 +162,7 @@ jobs:
             fi
           done
           if [ -z "$SELECTED_REGION" ]; then
-            echo "❌ No available region found. All regions exhausted or error occurred."
+            echo "No available region found. All regions exhausted or error occurred."
             exit 1
           fi
           # export chosen RG name so later steps reference it
