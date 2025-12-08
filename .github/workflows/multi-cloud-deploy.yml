@@ -96,25 +96,51 @@ jobs:
         az provider register --namespace Microsoft.Web --wait
         echo "Resource providers registered"
 
-    - name: Find Available Azure Region and Create Resource Group
+    - name: Set Azure resource names (use existing plan)
       run: |
-        REGIONS=("eastus" "westus" "southcentralus" "canadacentral" "northeurope" "westeurope")
-        SELECTED_REGION=""
-        
-        echo "Attempting to find available region for deployment..."
-        for region in "${REGIONS[@]}"; do
-          echo "Trying region: $region"
-          if az group create --name helloworld-rg --location $region 2>&1 | grep -q "created\|already exists"; then
-            SELECTED_REGION=$region
-            echo "Using region: $SELECTED_REGION"
-            echo "AZURE_REGION=$SELECTED_REGION" >> $GITHUB_ENV
-            break
+        # Use the App Service Plan and Resource Group you showed in your local 'az' output
+        RG="multi-cloud-demo"
+        PLAN="ASP-multiclouddemo-b415"
+        echo "AZURE_RESOURCE_GROUP=$RG" >> $GITHUB_ENV
+        echo "AZURE_APP_SERVICE_PLAN=$PLAN" >> $GITHUB_ENV
+        # Try to detect the resource group's location and export AZURE_REGION if found
+        LOCATION=$(az group show --name "$RG" --query location -o tsv 2>/dev/null || echo "")
+        if [ -n "$LOCATION" ]; then
+          echo "AZURE_REGION=$LOCATION" >> $GITHUB_ENV
+          echo "Detected resource group location: $LOCATION"
+        else
+          echo "AZURE_REGION=" >> $GITHUB_ENV
+          echo "Resource group $RG not found locally via az group show; subsequent steps may create or select region."
+        fi
+
+    - name: Find or Create Azure Resource Group (uses existing if present)
+      run: |
+        # Use provided resource group if set above; otherwise fall back to creating helloworld-rg
+        RG=${{ env.AZURE_RESOURCE_GROUP }}
+        if [ -n "$RG" ] && az group exists --name "$RG"; then
+          echo "Resource group $RG already exists. Using existing group."
+          LOCATION=$(az group show --name "$RG" --query location -o tsv)
+          echo "AZURE_REGION=$LOCATION" >> $GITHUB_ENV
+        else
+          RG="helloworld-rg"
+          REGIONS=("eastus" "westus" "southcentralus" "canadacentral" "northeurope" "westeurope")
+          SELECTED_REGION=""
+          echo "Attempting to find available region for new resource group..."
+          for region in "${REGIONS[@]}"; do
+            echo "Trying region: $region"
+            if az group create --name $RG --location $region 2>&1 | grep -q "created\|already exists"; then
+              SELECTED_REGION=$region
+              echo "Using region: $SELECTED_REGION"
+              echo "AZURE_REGION=$SELECTED_REGION" >> $GITHUB_ENV
+              break
+            fi
+          done
+          if [ -z "$SELECTED_REGION" ]; then
+            echo "❌ No available region found. All regions exhausted or error occurred."
+            exit 1
           fi
-        done
-        
-        if [ -z "$SELECTED_REGION" ]; then
-          echo "❌ No available region found. All regions exhausted or error occurred."
-          exit 1
+          # export chosen RG name so later steps reference it
+          echo "AZURE_RESOURCE_GROUP=$RG" >> $GITHUB_ENV
         fi
 
     - name: Create Azure Container Registry
@@ -122,7 +148,7 @@ jobs:
         ACR_NAME="helloworldacr$(date +%s | tail -c 4)"
         echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
         az acr create \
-          --resource-group helloworld-rg \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name $ACR_NAME \
           --sku Basic
 
@@ -146,8 +172,8 @@ jobs:
         echo "WEBAPP_NAME=$WEBAPP_NAME" >> $GITHUB_ENV
 
         az webapp create \
-          --resource-group helloworld-rg \
-          --plan helloworld-asp \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --plan ${{ env.AZURE_APP_SERVICE_PLAN }} \
           --name $WEBAPP_NAME
 
     - name: Configure Web App Container Settings (ACR)
@@ -157,10 +183,10 @@ jobs:
         REGISTRY_URL="https://${ACR_NAME}.azurecr.io"
         USERNAME=$(az acr credential show -n $ACR_NAME --query "username" -o tsv)
         PASSWORD=$(az acr credential show -n $ACR_NAME --query "passwords[0].value" -o tsv)
-        
+
         az webapp config container set \
           --name $WEBAPP_NAME \
-          --resource-group helloworld-rg \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --docker-custom-image-name ${ACR_NAME}.azurecr.io/helloworld-app:latest \
           --docker-registry-server-url $REGISTRY_URL \
           --docker-registry-server-user $USERNAME \
@@ -172,13 +198,13 @@ jobs:
         echo "Configuring web app settings for $WEBAPP_NAME..."
         az webapp config appsettings set \
           --name $WEBAPP_NAME \
-          --resource-group helloworld-rg \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --settings WEBSITES_PORT=8080
 
         echo "Restarting web app to apply settings..."
         az webapp restart \
           --name $WEBAPP_NAME \
-          --resource-group helloworld-rg
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }}
 
         echo "Waiting for web app to fully start..."
         sleep 30
