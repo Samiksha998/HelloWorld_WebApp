@@ -179,33 +179,51 @@ jobs:
 
     - name: Create Azure Web App
       run: |
-        WEBAPP_NAME="Hellowworld-App"
+        WEBAPP_NAME="helloworld"
         echo "WEBAPP_NAME=$WEBAPP_NAME" >> $GITHUB_ENV
 
         ACR_NAME=${{ env.ACR_NAME }}
         IMAGE_NAME=${ACR_NAME}.azurecr.io/helloworld-app:latest
 
-        az webapp create \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --plan ${{ env.AZURE_APP_SERVICE_PLAN }} \
-          --name $WEBAPP_NAME \
-          --deployment-container-image-name $IMAGE_NAME
+        # Check if web app already exists, if not create it
+        if az webapp show --name $WEBAPP_NAME --resource-group ${{ env.AZURE_RESOURCE_GROUP }} &>/dev/null; then
+          echo "Web app $WEBAPP_NAME already exists, skipping creation"
+        else
+          echo "Creating web app: $WEBAPP_NAME"
+          az webapp create \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --plan ${{ env.AZURE_APP_SERVICE_PLAN }} \
+            --name $WEBAPP_NAME \
+            --deployment-container-image-name $IMAGE_NAME
+        fi
 
-    - name: Configure Web App Container Settings (ACR)
+        # Enable managed identity
+        echo "Enabling managed identity on web app..."
+        az webapp identity assign --name $WEBAPP_NAME --resource-group ${{ env.AZURE_RESOURCE_GROUP }}
+
+        # Grant AcrPull role to managed identity
+        echo "Granting AcrPull role to managed identity..."
+        PRINCIPAL_ID=$(az webapp identity show --name $WEBAPP_NAME --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query principalId -o tsv)
+        ACR_ID=$(az acr show --name $ACR_NAME --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query id -o tsv)
+        az role assignment create --assignee $PRINCIPAL_ID --role AcrPull --scope $ACR_ID 2>/dev/null || echo "Role assignment already exists"
+
+    - name: Configure Web App Container Settings (Managed Identity)
       run: |
         ACR_NAME=${{ env.ACR_NAME }}
         WEBAPP_NAME=${{ env.WEBAPP_NAME }}
         REGISTRY_URL="https://${ACR_NAME}.azurecr.io"
-        USERNAME=$(az acr credential show -n $ACR_NAME --query "username" -o tsv)
-        PASSWORD=$(az acr credential show -n $ACR_NAME --query "passwords[0].value" -o tsv)
+        IMAGE="${ACR_NAME}.azurecr.io/helloworld-app:latest"
 
+        echo "Configuring container with managed identity..."
+        echo "Image: $IMAGE"
+        echo "Registry: $REGISTRY_URL"
+        
+        # Configure container using managed identity (no explicit credentials)
         az webapp config container set \
           --name $WEBAPP_NAME \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --docker-custom-image-name ${ACR_NAME}.azurecr.io/helloworld-app:latest \
-          --docker-registry-server-url $REGISTRY_URL \
-          --docker-registry-server-user $USERNAME \
-          --docker-registry-server-password $PASSWORD
+          --container-image-name $IMAGE \
+          --container-registry-url $REGISTRY_URL
 
     - name: Configure Port and Enable Container Restart
       run: |
@@ -227,8 +245,7 @@ jobs:
     - name: Display and Verify Azure Web App URL
       run: |
         WEBAPP_NAME=${{ env.WEBAPP_NAME }}
-        WEBAPP_NAME_LOWER=$(echo "$WEBAPP_NAME" | tr '[:upper:]' '[:lower:]')
-        AZURE_URL="https://${WEBAPP_NAME_LOWER}.azurewebsites.net"
+        AZURE_URL="https://${WEBAPP_NAME}.azurewebsites.net"
         echo "Azure Web App URL: $AZURE_URL"
         echo "Testing web app endpoint..."
 
