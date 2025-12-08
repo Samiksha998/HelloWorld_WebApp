@@ -143,14 +143,21 @@ jobs:
           echo "AZURE_RESOURCE_GROUP=$RG" >> $GITHUB_ENV
         fi
 
-    - name: Create Azure Container Registry
+    - name: Create or Use Existing Azure Container Registry
       run: |
-        ACR_NAME="helloworldacr$(date +%s | tail -c 4)"
+        ACR_NAME="helloworldacr084"
         echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
-        az acr create \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --name $ACR_NAME \
-          --sku Basic
+        
+        # Check if ACR already exists
+        if az acr show --name $ACR_NAME --resource-group ${{ env.AZURE_RESOURCE_GROUP }} &>/dev/null; then
+          echo "ACR $ACR_NAME already exists, reusing it"
+        else
+          echo "Creating new ACR: $ACR_NAME"
+          az acr create \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name $ACR_NAME \
+            --sku Basic
+        fi
 
     - name: Enable ACR Admin and Login
       run: |
