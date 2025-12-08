@@ -137,40 +137,28 @@ jobs:
 
         # Push the image to ACR
         docker push ${ACR_NAME}.azurecr.io/helloworld-app:latest
-
-    - name: Check Subscription Quota & Create App Service Plan
+    - name: Create App Service Plan (B1 - Basic Tier)
       run: |
-        echo "Attempting to create App Service Plan (B1 - Basic tier)..."
+        echo "Creating App Service Plan with B1 Basic tier..."
+        echo "Plan Name: helloworld-asp"
+        echo "SKU: B1 (Basic - 1 vCPU, 1.75 GB RAM)"
+        echo "Features: Custom domains, SSL, autoscaling, 5 app deployments"
         echo ""
         
-        # Try to create the plan with error handling
-        if az appservice plan create \
+        az appservice plan create \
           --name helloworld-asp \
           --resource-group helloworld-rg \
           --sku B1 \
-          --is-linux 2>&1; then
-          echo "✅ App Service Plan created successfully"
+          --is-linux
+        
+        if [ $? -eq 0 ]; then
+          echo "✅ App Service Plan created successfully with B1 tier"
+          echo ""
+          echo "Plan Details:"
+          az appservice plan show --name helloworld-asp --resource-group helloworld-rg --query "{Name:name, SKU:sku.name, Tier:sku.tier}"
         else
-          echo "⚠️  B1 tier creation failed (possible quota limit)"
-          echo ""
-          echo "SOLUTION OPTIONS:"
-          echo "1. Request a quota increase via Azure Support:"
-          echo "   https://portal.azure.com -> Help + Support -> New Support Request"
-          echo "   Set 'Issue type' to 'Service and subscription limits (quotas)'"
-          echo "   Request: 'Increase App Service Plan quota for Free/Shared tier in eastus'"
-          echo ""
-          echo "2. Try deploying to a different region (westus, southcentralus, etc.)"
-          echo ""
-          echo "3. Use F1 Free tier (1 free app per subscription limit):"
-          echo "   Retrying with F1 Free tier..."
-          az appservice plan create \
-            --name helloworld-asp \
-            --resource-group helloworld-rg \
-            --sku F1 \
-            --is-linux || {
-            echo "❌ Both B1 and F1 plans failed. Quota likely needs increase."
-            exit 1
-          }
+          echo "❌ Failed to create B1 plan. Check quota limits."
+          exit 1
         fi
 
     - name: Create Azure Web App
