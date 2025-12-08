@@ -87,6 +87,14 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+    - name: Register Required Azure Resource Providers
+      run: |
+        echo "Registering Microsoft.ContainerRegistry provider..."
+        az provider register --namespace Microsoft.ContainerRegistry --wait
+        echo "Registering Microsoft.Web provider..."
+        az provider register --namespace Microsoft.Web --wait
+        echo "✅ Resource providers registered"
+
     - name: Create Azure Resource Group
       run: |
         az group create \
