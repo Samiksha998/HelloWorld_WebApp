@@ -202,7 +202,7 @@ jobs:
         docker push ${ACR_NAME}.azurecr.io/helloworld-app:latest
         echo "Image pushed successfully"
   # ======================================================================
-    #      📌 OPTIONAL ACR SECURITY CHECK (COMMENTED)
+    #       OPTIONAL ACR SECURITY CHECK (COMMENTED)
     # ======================================================================
     # --- START :: ACR IMAGE SECURITY SCAN ---
     # - name: Scan Image in ACR
@@ -276,7 +276,7 @@ jobs:
         echo "Waiting for web app to fully start..."
         sleep 30
 # ======================================================================
-    #            📌 OPTIONAL AZURE AUTOSCALE BLOCK (COMMENTED)
+    #            OPTIONAL AZURE AUTOSCALE BLOCK (COMMENTED)
     # ======================================================================
     # --- START :: ENABLE AUTOSCALE FOR APP SERVICE PLAN ---
     # - name: Enable Azure App Service Autoscaling
